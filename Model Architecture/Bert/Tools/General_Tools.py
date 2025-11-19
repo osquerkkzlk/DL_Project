@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 import math
-
+from d2l import torch as d2l
 
 L=[]
 # ✔️
@@ -139,9 +139,10 @@ def get_loss(net,loss,vocab_size,tokens_X,segments_X,valid_lens_X,\
     _,mlm_y_pred,nsp_y_pred=net(tokens_X,segments_X,valid_lens_X.reshape(-1),\
                                 pred_positions_X)
     mlm_l=loss(mlm_y_pred.reshape(-1,vocab_size),mlm_y.reshape(-1))*\
-                mlm_weights_X.reshape(-1,1)
+                mlm_weights_X.reshape(-1)
     mlm_l=mlm_l.sum()/(mlm_weights_X.sum()+1e-8)
     nsp_l=loss(nsp_y_pred,nsp_y)
+    nsp_l=nsp_l.mean()
     l=mlm_l+nsp_l
     return mlm_l,nsp_l,l
 
@@ -172,9 +173,9 @@ def train_bert(train_iter, net, loss, vocab_size, device, num_steps,eval=False):
             mlm_l, nsp_l, l = get_loss(
                 net, loss, vocab_size, tokens_X, segments_X, valid_lens_x,
                 pred_positions_X, mlm_weights_X, mlm_Y, nsp_y)
-            l.backward()
+            l.sum().backward()
             trainer.step()
-            metric.add(mlm_l, nsp_l, tokens_X.shape[0],1)
+            metric.add(mlm_l.item(), nsp_l.item(), tokens_X.shape[0],1)
             step += 1
             pbar.update(1)
             pbar.set_description(f"{step+1}/{num_steps+1}",

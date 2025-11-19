@@ -19,5 +19,5 @@ if __name__ == '__main__':
                         nsp_in_features=128)
     device="cuda" if torch.cuda.is_available() else "cpu"
     loss = nn.CrossEntropyLoss(reduction='none')
-    train_bert(train_iter, net, loss, len(vocab), device, 50, eval=False)
+    train_bert(train_iter, net, loss, len(vocab), device, 512)
 

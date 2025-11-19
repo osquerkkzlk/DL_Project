@@ -146,7 +146,7 @@ def pad_bert_inputs(examples,max_len,vocab):
         # ” 用于屏蔽填充位置的损失权重 ,“ 1 为真实 mask 位置，0 为填充位置）
         all_mlm_weights.append(torch.tensor([1.]*len(mlm_pred_label_ids)+[0.]*(max_num_mlm_preds-len(pred_positions)),dtype=torch.float32))
         # 预测填充词元的真实标签（即真实数据）
-        all_mlm_labels.append(torch.tensor(mlm_pred_label_ids+[0]*(max_num_mlm_preds-len(mlm_pred_label_ids)),dtype=torch.float32))
+        all_mlm_labels.append(torch.tensor(mlm_pred_label_ids+[0]*(max_num_mlm_preds-len(mlm_pred_label_ids)),dtype=torch.long))
         # 预测段落任务的标签
         nsp_labels.append(torch.tensor(is_next,dtype=torch.long))
 

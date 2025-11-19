@@ -53,7 +53,7 @@ class BertEncoder(nn.Module):
         # < X shape > (batch,max_len,num_hiddens)
         X=self.token_embedding(tokens)+self.segment_embedding(segments)
         X=X+self.pos_embedding.data[:,:X.shape[1],:]
-        for blk in self.blkks:
+        for blk in self.blks:
             X=blk(X,valid_lens)
         return X
 
