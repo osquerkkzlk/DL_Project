@@ -2,17 +2,22 @@ import torch
 from torch import nn
 from tqdm import tqdm
 from collections import defaultdict
-import pickle,json,math
+import pickle, json, math
 import matplotlib.pyplot as plt
 import numpy as np
+import torch.serialization
 
-L=[]
+torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+L = []
+
+
 # ✔️
 def truncate_pad(line, num_steps, padding_token):
     """截断或者填充序列,以保证序列长度一致"""
     if len(line) > num_steps:
         return line[:num_steps]
     return line + [padding_token] * (num_steps - len(line))
+
 
 # ✔️
 class FFN(nn.Module):
@@ -29,7 +34,8 @@ class FFN(nn.Module):
     def forward(self, X):
         return self.dense2(self.relu(self.dense1(X)))
 
-#✔️
+
+# ✔️
 class AddNorm(nn.Module):
     """层归一化"""
 
@@ -41,12 +47,14 @@ class AddNorm(nn.Module):
     def forward(self, X, y):
         return self.LN(self.dropout(y) + X)
 
-#✔️
+
+# ✔️
 def sequence_mask(X, valid_len, value=0):
     maxlen = X.size(1)
     mask = torch.arange((maxlen), dtype=torch.float32, device=X.device)[None, :] < valid_len[:, None]
     X[~mask] = value
     return X
+
 
 # ✔️
 def masked_softmax(X, valid_lens):
@@ -63,6 +71,7 @@ def masked_softmax(X, valid_lens):
             valid_lens = valid_lens.reshape(-1)
         X = sequence_mask(X.reshape(-1, X.shape[-1]), valid_lens, value=-1e6)
         return nn.functional.softmax(X.reshape(shape), dim=-1)
+
 
 # ✔️
 class AdditiveAttention(nn.Module):
@@ -83,6 +92,7 @@ class AdditiveAttention(nn.Module):
         self.attention_weights = masked_softmax(scores, valid_lens)
         return torch.bmm(self.dropout(self.attention_weights), values)
 
+
 # ✔️
 class DotProductAttention(nn.Module):
     """缩放点积注意力"""
@@ -97,12 +107,14 @@ class DotProductAttention(nn.Module):
         self.attention_weights = masked_softmax(scores, valid_lens)
         return torch.bmm(self.dropout(self.attention_weights), values)
 
+
 # ✔️
 def transpose_qkv(X, num_heads):
     """transform shape"""
     X = X.reshape(X.shape[0], X.shape[1], num_heads, -1)
     X = X.permute(0, 2, 1, 3)
     return X.reshape(-1, X.shape[2], X.shape[3])
+
 
 # ✔️
 def transpose_output(X, num_heads):
@@ -111,6 +123,7 @@ def transpose_output(X, num_heads):
     X = X.permute(0, 2, 1, 3)
     return X.reshape(X.shape[0], X.shape[1], -1)
 
+
 # ✔️
 def grad_clipping(net, theta):
     params = [p for p in net.parameters() if p.requires_grad]
@@ -118,6 +131,7 @@ def grad_clipping(net, theta):
     if norm > theta:
         for param in params:
             param.grad[:] *= theta / norm
+
 
 # ✔️
 class Accumulator():
@@ -131,6 +145,7 @@ class Accumulator():
 
     def __getitem__(self, idx):
         return self.Record[idx]
+
 
 # ✔️
 class MultiHeadAttention(nn.Module):
@@ -157,25 +172,29 @@ class MultiHeadAttention(nn.Module):
         output = transpose_output(output, self.num_heads)
         return self.W_o(output)
 
+
 # ✔️
 class PositionalEncoding(nn.Module):
-    """位置编码"""
-
     def __init__(self, num_hiddens, dropout, max_len=1000):
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.P = torch.zeros((1, max_len, num_hiddens))
-        X = torch.arange(max_len, dtype=torch.float32). \
-                reshape(-1, 1) / torch.pow(10000, torch.arange(0, num_hiddens, 2, dtype=torch.float32) / num_hiddens)
-        self.P[:, :, 0::2] = torch.sin(X)
-        self.P[:, :, 1::2] = torch.cos(X)
-        self.t=0
 
-    def forward(self, X,eval=False):
-        X = X + self.P[:, self.t:X.shape[1]+self.t, :].to(X.device)
-        if eval:
-            self.t+=1
+        # 预计算所有可能的位置编码
+        P = torch.zeros((1, max_len, num_hiddens))
+        X = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1) / torch.pow(
+            10000, torch.arange(0, num_hiddens, 2, dtype=torch.float32) / num_hiddens)
+        P[:, :, 0::2] = torch.sin(X)
+        P[:, :, 1::2] = torch.cos(X)
+        self.register_buffer('P', P)  # 不参与梯度，但会随模型保存
+
+    def forward(self, X, offset=0):
+        """
+        X: (batch_size, seq_len, num_hiddens)
+        offset: 当前解码步的起始位置（训练时=0，预测时=0,1,2,...）
+        """
+        X = X + self.P[:, offset:offset + X.shape[1], :].to(X.device)
         return self.dropout(X)
+
 
 # ✔️
 class EncoderDecoder(nn.Module):
@@ -189,11 +208,13 @@ class EncoderDecoder(nn.Module):
         dec_state = self.decoder.init_state(enc_outputs, *args)
         return self.decoder(dec_X, dec_state)
 
+
 # ✔️
 class MaskedSoftmaxLoss(nn.CrossEntropyLoss):
     """
     带遮蔽的softmax交叉熵损失函数
     """
+
     def forward(self, pred, label, valid_lens):
         weights = torch.ones_like(label)
         weights = sequence_mask(weights, valid_lens)
@@ -201,6 +222,7 @@ class MaskedSoftmaxLoss(nn.CrossEntropyLoss):
         unweighted_loss = super(MaskedSoftmaxLoss, self).forward(pred.permute(0, 2, 1), label)
         weighted_loss = (unweighted_loss * weights).mean(dim=1)
         return weighted_loss
+
 
 # ✔️
 def bleu(pred_seq, label_seq, k):
@@ -221,8 +243,9 @@ def bleu(pred_seq, label_seq, k):
         score *= math.pow(num_matches / (len_pred - n + 1), math.pow(0.5, n))
     return score
 
+
 # ✔️
-def train(net, train_iter, lr, num_epochs, src_vocab, tgt_vocab, device, num_steps,samples=None):
+def train(net, train_iter, lr, num_epochs, src_vocab, tgt_vocab, device, num_steps, Go=False, samples=None):
     def init_weight(m):
         if isinstance(m, nn.Linear):
             nn.init.xavier_uniform_(m.weight)
@@ -232,10 +255,14 @@ def train(net, train_iter, lr, num_epochs, src_vocab, tgt_vocab, device, num_ste
     optim = torch.optim.Adam(net.parameters(), lr=lr)
     loss = MaskedSoftmaxLoss()
     net.train()
-
+    start_epoch = 0
     global L
-
-    for epoch in tqdm(range(num_epochs), desc=f"<training>🤫"):
+    if Go:
+        start_epoch, L = load_checkpoint(net, optim)
+        start_epoch += 1
+    if torch.cuda.device_count() > 1:
+        net = nn.DataParallel(net)
+    for epoch in tqdm(range(start_epoch, num_epochs), desc=f"<training>🤫"):
         metric = Accumulator(2)
         for batch in train_iter:
             net.train()
@@ -243,86 +270,95 @@ def train(net, train_iter, lr, num_epochs, src_vocab, tgt_vocab, device, num_ste
             X, X_valid_lens, y, y_valid_lens = [x.to(device) for x in batch]
             bos = torch.tensor([tgt_vocab["<bos>"]] * y.shape[0], device=device).reshape(-1, 1)
             dec_input = torch.cat([bos, y[:, :-1]], 1)
+            y_label = y
             y_pred, _ = net(X, dec_input, X_valid_lens)
-            l = loss(y_pred, y, y_valid_lens)
+            l = loss(y_pred, y_label, y_valid_lens)
             l.sum().backward()
             grad_clipping(net, 1)
             optim.step()
             with torch.no_grad():
                 num_tokens = y_valid_lens.sum()
                 metric.add(l.sum(), num_tokens)
-        temp=metric[0] / metric[1]
+        temp = metric[0] / metric[1]
         L.append(temp.cpu().numpy())
-        if epoch%10==0:
+        save_checkpoint(net, optim, epoch, L)
+        if epoch % 10 == 0:
             print(f"Current Loss is {temp:.3f}\n")
+    Eval(num_epochs, net, src_vocab, tgt_vocab, num_steps, device, samples)
 
-    Eval(num_epochs,net, src_vocab, tgt_vocab, num_steps, device,samples)
 
 # ✔️
 def predict(net, src_sentence, src_vocab, tgt_vocab, num_steps, device):
-    """序列到序列模型的预测"""
-    # 在预测时将net设置为评估模式
     net.eval()
-    net.decoder.pos_encoding.t=0
-    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [
-        src_vocab['<eos>']]
+    model = net.module if hasattr(net, 'module') else net
+    encoder = model.encoder
+    decoder = model.decoder
+
+    # 编码器部分不变
+    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [src_vocab['<eos>']]
     enc_valid_len = torch.tensor([len(src_tokens)], device=device)
     src_tokens = truncate_pad(src_tokens, num_steps, src_vocab['<pad>'])
-    # 添加批量轴
-    enc_X = torch.unsqueeze(
-        torch.tensor(src_tokens, dtype=torch.long, device=device), dim=0)
-    enc_outputs = net.encoder(enc_X, enc_valid_len)
-    dec_state = net.decoder.init_state(enc_outputs, enc_valid_len)
-    # 添加批量轴
-    dec_X = torch.unsqueeze(torch.tensor(
-        [tgt_vocab['<bos>']], dtype=torch.long, device=device), dim=0)
-    output_seq=[]
-    for _ in range(num_steps):
-        Y, dec_state = net.decoder(dec_X, dec_state,eval)
-        # 我们使用具有预测最高可能性的词元，作为解码器在下一时间步的输入
-        dec_X=Y.argmax(dim=2)
-        pred = dec_X.squeeze(dim=0).type(torch.int32).item()
+    enc_X = torch.unsqueeze(torch.tensor(src_tokens, dtype=torch.long, device=device), dim=0)
+    enc_outputs = encoder(enc_X, enc_valid_len)
+    dec_state = decoder.init_state(enc_outputs, enc_valid_len)
+
+    dec_X = torch.tensor([[tgt_vocab['<bos>']]], device=device)
+    output_seq = []
+
+    for t in range(num_steps):  # t 就是当前步的 offset
+        Y, dec_state = decoder(dec_X, dec_state, offset=t)  # 关键！传 t
+        next_token = Y.argmax(dim=2)
+        pred = next_token.item()
         if pred == tgt_vocab['<eos>']:
             break
         output_seq.append(pred)
-    net.train()
+        dec_X = next_token  # Teacher forcing off，用自己的预测
+
     return ' '.join(tgt_vocab.to_tokens(output_seq))
 
 
-def Eval(num_epochs,net, src_vocab, tgt_vocab, num_steps, device,samples=None):
+def Eval(num_epochs, net, src_vocab, tgt_vocab, num_steps, device, samples=None):
     if not samples:
         samples = [('go .', 'va !'),
-                 ('hi .', 'salut !'),
-                 ('run !', 'cours !'),
-                 ('hello .', 'bonjour .'),
-                 ('i won !', "j'ai gagné !"),
-                 ("i'm ok .", 'je vais bien .'),
-                 ('thank you .', 'merci .'),
-                 ('are you ok ?', 'ça va ?'),
-                 ("i'm home .", 'je suis rentré .'),
-                 ('we won .', 'nous avons gagné .')]
-    metric=Accumulator(2)
-    for src,tgt in samples:
-        pred=predict(net, src, src_vocab, tgt_vocab, num_steps, device)
-        Single_bleu=bleu(pred,tgt,2)
-        print(f"{pred:20}-------->,{tgt:20}\t\t{Single_bleu:.4f}")
-        metric.add(1,Single_bleu)
-    print(f"\nOverall_score is {metric[1]/metric[0]:.4f}")
+                   ('hi .', 'salut !'),
+                   ('run !', 'cours !'),
+                   ('hello .', 'bonjour .'),
+                   ('i won !', "j'ai gagné !"),
+                   ("i'm ok .", 'je vais bien .'),
+                   ('thank you .', 'merci .'),
+                   ('are you ok ?', 'ça va ?'),
+                   ("i'm home .", 'je suis rentré .'),
+                   ('we won .', 'nous avons gagné .')]
+    metric = Accumulator(2)
+    for src, tgt in samples:
+        pred = predict(net, src, src_vocab, tgt_vocab, num_steps, device)
+        Single_bleu = bleu(pred, tgt, 2)
+        print(f"{pred:30}-------->,{tgt:30}\t\t{Single_bleu:.4f}")
+        metric.add(1, Single_bleu)
+    print(f"\nOverall_score is {metric[1] / metric[0]:.4f}")
 
     # display
-    plt.plot(np.arange(1, num_epochs + 1), L, "b-o")
+    plt.plot(np.arange(1, len(L) + 1), L, "b-o")
     plt.title("Loss of epoches")
     plt.xlabel("Epoches")
     plt.ylabel("Loss")
-    plt.savefig(r".\image\Loss.png")
+    plt.savefig(r"./image/Loss.png")
     plt.show()
 
-def save(net,src_vocab,tgt_vocab,config=None):
-    torch.save(net.state_dict(), r"Storage\model.pth")
-    with open(r"Storage\src_vocab.pkl", "wb") as f:
-        pickle.dump(src_vocab, f)
-    with open(r"Storage\tgt_vocab.pkl", "wb") as f:
-        pickle.dump(tgt_vocab, f)
-    if config:
-        with open(r"Storage\config.json", "w") as f:
-            json.dump(config, f)
+
+def save_checkpoint(model, optimizer, epoch,L, path="./storage/checkpoint.pt"):
+    torch.save({
+        "model": model.module.state_dict() if torch.cuda.device_count()>1 else model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "epoch": epoch,
+        'loss_history': L,
+    }, path)
+
+
+def load_checkpoint(model, optimizer, path="./storage/checkpoint.pt"):
+    print("loading...")
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    model.load_state_dict(checkpoint["model"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    print(f"Resumed from epoch {checkpoint['epoch']} ")
+    return checkpoint["epoch"],checkpoint["loss_history"]

@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import math
-from Function.General_tools import MultiHeadAttention,AddNorm,FFN,PositionalEncoding
+from Function.General_tools import PositionalEncoding,MultiHeadAttention,AddNorm,FFN
 
-#✔️
+# ✔️
 class DecoderBlock(nn.Module):
     """解码器块"""
 
@@ -31,7 +31,7 @@ class DecoderBlock(nn.Module):
         if self.training:
             # 生成 mask 掩码，用于训练的时候遮蔽后面的词元
             batch_size, num_steps, _ = X.shape
-            dec_valid_lens = torch.arange(1, num_steps+ 1, device=X.device).repeat(batch_size, 1)
+            dec_valid_lens = torch.arange(1, num_steps + 1, device=X.device).repeat(batch_size, 1)
         else:
             dec_valid_lens = None
         # 在这里，X作为 query ，key_values作为键值对，表示 key_values的每个位置对当前查询的影响权重
@@ -42,27 +42,28 @@ class DecoderBlock(nn.Module):
         Z = self.addnorm2(y, y2)
         return self.addnorm3(Z, self.ffn(Z)), state
 
-#✔️
+
+# ✔️
 class TransformerDecoder(nn.Module):
-    def __init__(self,vocab_size,key_size,query_size,value_size,num_hiddens,norm_shape,\
-                ffn_num_inputs,ffn_num_hiddens,num_heads,num_layers,dropout,**kwargs):
-        super(TransformerDecoder,self).__init__(**kwargs)
-        self.num_hiddens=num_hiddens
-        self.num_layers=num_layers
-        self.embedding=nn.Embedding(vocab_size,num_hiddens)
-        self.pos_encoding=PositionalEncoding(num_hiddens,dropout)
-        self.blks=nn.Sequential()
+    def __init__(self, vocab_size, key_size, query_size, value_size, num_hiddens, norm_shape, \
+                 ffn_num_inputs, ffn_num_hiddens, num_heads, num_layers, dropout, **kwargs):
+        super(TransformerDecoder, self).__init__(**kwargs)
+        self.num_hiddens = num_hiddens
+        self.num_layers = num_layers
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+        self.blks = nn.Sequential()
         for i in range(num_layers):
-            self.blks.add_module(f"block_{i}",DecoderBlock(key_size,query_size,value_size,num_hiddens,\
-                                                           norm_shape, ffn_num_inputs,ffn_num_hiddens,\
-                                                           num_heads,dropout,i))
-        self.dense=nn.Linear(num_hiddens,vocab_size)
+            self.blks.add_module(f"block_{i}", DecoderBlock(key_size, query_size, value_size, num_hiddens, \
+                                                            norm_shape, ffn_num_inputs, ffn_num_hiddens, \
+                                                            num_heads, dropout, i))
+        self.dense = nn.Linear(num_hiddens, vocab_size)
 
-    def init_state(self,enc_outputs,enc_valid_lens,*args):
-        return [enc_outputs,enc_valid_lens,[None]*self.num_layers]
+    def init_state(self, enc_outputs, enc_valid_lens, *args):
+        return [enc_outputs, enc_valid_lens, [None] * self.num_layers]
 
-    def forward(self,X,state,eval=False):
-        X=self.pos_encoding(self.embedding(X)*math.sqrt(self.num_hiddens),eval)
-        for blk in self.blks:
-            X,state=blk(X,state)
-        return self.dense(X),state
+    def forward(self, X, state, offset=0):  # 新增 offset 参数
+        X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens), offset)
+        for i, blk in enumerate(self.blks):
+            X, state = blk(X, state)
+        return self.dense(X), state

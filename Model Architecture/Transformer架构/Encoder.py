@@ -2,6 +2,7 @@ from torch import nn
 import math
 from Function.General_tools import MultiHeadAttention,AddNorm,FFN,PositionalEncoding
 
+
 #✔️
 class EncoderBlock(nn.Module):
     """编码块"""

@@ -5,7 +5,7 @@ import os
 
 def read_data():
     """载入“英语－法语”数据集"""
-    data_dir = r"E:\DL_files\NLP\fra-eng\fra-eng"
+    data_dir = r"../../data/fra-eng"
     with open(os.path.join(data_dir, 'fra.txt'), 'r',
               encoding='utf-8') as f:
         return f.read()
@@ -121,6 +121,3 @@ def load_data(batch_size, num_steps, num_examples=None):
 
     train_iter = load_array(src_vocab, tgt_vocab, train_src, train_tgt, batch_size, num_steps, True)
     return train_iter,src_vocab,tgt_vocab
-
-
-
