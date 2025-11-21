@@ -1,0 +1,1 @@
+由于Glove文件体积太大，使用者需要重新在[网站](https://nlp.stanford.edu/projects/glove/)上下载，放在data目录下即可
