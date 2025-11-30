@@ -5,9 +5,9 @@ from preprocessing import get, extract_features, gram, criterion
 
 configue = {
     "lr": 0.003,
-    "epochs": 2000,
+    "epochs": 500,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
-    "image_shape": (512, 768),
+    "image_shape": (420, 400),
     "epoch_step": 999999,
     "steps": 400,
 }
@@ -29,7 +29,6 @@ def style_transfer_with_progress(content_img: Image.Image, style_img: Image.Imag
 
     # 实时生成器
     for step in range(total_steps):
-        print("")
         optim.zero_grad()
         style_pred, content_pred = extract_features(net, X, layers)
         contents_l, style_l, tv_l, sum_l = criterion(X, content_features, content_pred, style_gram, style_pred)
@@ -37,11 +36,13 @@ def style_transfer_with_progress(content_img: Image.Image, style_img: Image.Imag
         optim.step()
         scheduler.step()
 
-        # 每 50 步更新进度条
-        if step % 50 == 0 or step == total_steps - 1:
+        # 每 30 步更新进度条
+        if step % 30 == 0 or step == total_steps - 1:
             current = X.clone().squeeze(0).cpu()
             current = torch.clamp(current, 0, 1)
-            result_pil = Image.fromarray((current.permute(1, 2, 0).detach().numpy() * 255).astype('uint8'))
+            result_np = current.permute(1, 2, 0).detach().numpy()
+            result_pil = Image.fromarray((result_np * 255).astype('uint8'), mode='RGB')
+
 
             progress_text = f"风格融合中... {step + 1}/{total_steps} 步"
             if step % 200 == 0 and step > 0:
@@ -59,7 +60,7 @@ with gr.Blocks(title="AI风格迁移 · 实时进度") as demo:
         style_input = gr.Image(label="风格图", type="pil")
 
     submit_btn = gr.Button("开始生成艺术作品", variant="primary")
-    output_image = gr.Image(label="实时结果（每50步更新一次）")
+    output_image = gr.Image(label="实时结果（每50步更新一次）", type="pil", height=420, width=400)
     status_text = gr.Textbox(label="进度", interactive=False)
 
     submit_btn.click(
