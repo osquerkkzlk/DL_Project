@@ -12,3 +12,4 @@ def configure():
             print("----------------waiting----------------")
             time.sleep(3)
     return [int(x1),int(x2),int(x3),int(x4)]
+
