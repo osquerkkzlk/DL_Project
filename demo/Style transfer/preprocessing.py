@@ -100,7 +100,7 @@ class Recorder:
             for i,arg in enumerate(args):
                 self.metric[i].append(arg)
 
-def train(configue,content_img,style_img):
+def train(configue,content_img,style_img,display_loss_button=True):
     # 图像基本的预处理，转换成张量
     content_X, style_X, layers,net = get(content_img, style_img, configue["device"],configue["image_shape"])
 
@@ -131,8 +131,8 @@ def train(configue,content_img,style_img):
         pbar.update(1)
         pbar.set_description(f"<  loss  >{sum_l}")
         loss_recorder.add(contents_l.item(),style_l.item(),tv_l.item(),sum_l.item())
-
-    dispaly_loss(loss_recorder[0],loss_recorder[1],loss_recorder[2],loss_recorder[3])
+    if display_loss_button:
+        dispaly_loss(loss_recorder[0],loss_recorder[1],loss_recorder[2],loss_recorder[3])
     return X,img_recorder[0]
 
 def dispaly_loss(contents_l,style_l,tv_l,sum_l):
