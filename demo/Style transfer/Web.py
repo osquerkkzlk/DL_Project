@@ -29,6 +29,7 @@ def style_transfer_with_progress(content_img: Image.Image, style_img: Image.Imag
 
     # 实时生成器
     for step in range(total_steps):
+        print("")
         optim.zero_grad()
         style_pred, content_pred = extract_features(net, X, layers)
         contents_l, style_l, tv_l, sum_l = criterion(X, content_features, content_pred, style_gram, style_pred)
